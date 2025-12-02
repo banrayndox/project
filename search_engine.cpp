@@ -1,108 +1,192 @@
 #include <bits/stdc++.h>
 using namespace std;
+#include <chrono>
 
-// -------------------------- Utility functions --------------------------
+// WebPage class
+class WebPage {
+private:
+    int id;
+    string title;
+    string content;
+    string link;
 
-vector<string> tokenize(string s){
-    for(char &c : s){
-        if(ispunct(c)) c = ' ';
-        else c = tolower(c);
-    }
-    stringstream ss(s);
-    vector<string> tokens;
-    string w;
-    while(ss >> w) tokens.push_back(w);
-    return tokens;
-}
-
-// -------------------------- Search Engine Class --------------------------
-
-class SearchEngine{
 public:
-    vector<string> documents;                        // store full documents
-    map<string, vector<int>> invertedIndex;          // word -> list of docs
-    vector<map<string,int>> termFreq;                // per document word freq
-    map<string,int> docFreq;                         // word -> count of docs containing it
+    WebPage(int _id, const string &_title, const string &_content, const string &_link)
+        : id(_id), title(_title), content(_content), link(_link) {}
 
-    // Add a document/page
-    void addDocument(string text){
-        documents.push_back(text);
-        int id = documents.size() - 1;
+    int getId() const { return id; }
+    string getTitle() const { return title; }
+    string getContent() const { return content; }
+    string getLink() const { return link; }
 
-        vector<string> tokens = tokenize(text);
-        
-        map<string,int> tf;
-        for(string &w : tokens){
-            tf[w]++;
-        }
-        termFreq.push_back(tf);
-
-        // update inverted index + doc freq
-        set<string> uniqueWords(tokens.begin(), tokens.end());
-        for(string w : uniqueWords){
-            invertedIndex[w].push_back(id);
-            docFreq[w]++;
-        }
+    void displaySummary() const {
+        cout << "ID: " << id
+             << " | Title: " << title
+             << " | Link: " << link
+             << "\nDescription: " 
+             << (content.length() > 150 ? content.substr(0,150) + "..." : content)
+             << "\n\n";
     }
 
-    // Search using TF-IDF ranking
-    vector<pair<int,double>> search(string query){
-        vector<string> qTokens = tokenize(query);
-        map<int,double> score;
-
-        for(string &w : qTokens){
-            if(invertedIndex.find(w) == invertedIndex.end()) continue;
-
-            double idf = log((double)documents.size() / (1 + docFreq[w]));
-
-            for(int docID : invertedIndex[w]){
-                double tf = termFreq[docID][w];
-                score[docID] += tf * idf;
-            }
-        }
-
-        vector<pair<int,double>> result(score.begin(), score.end());
-        sort(result.begin(), result.end(), [](auto &a, auto &b){
-            return a.second > b.second;
-        });
-
-        return result;
+    void displayFull() const {
+        cout << "\n----- " << title << " -----\n";
+        cout << "Link: " << link << "\n";
+        cout << "Content:\n" << content << "\n---------------------\n";
     }
 };
 
-// -------------------------- MAIN PROGRAM --------------------------
+// Node for linked list
+struct Node {
+    WebPage page;
+    Node* next;
+    Node(const WebPage &p) : page(p), next(nullptr) {}
+};
 
-int main(){
-    SearchEngine engine;
+// Linked List class to store database
+class LinkedList {
+private:
+    Node* head;
+    Node* tail;
+    int size;
 
-    cout << "\n=== ADVANCED SEARCH ENGINE PROJECT ===\n\n";
+public:
+    LinkedList() : head(nullptr), tail(nullptr), size(0) {}
 
-    // Sample documents (you can replace with file input)
-    engine.addDocument("C++ is a powerful general purpose programming language.");
-    engine.addDocument("Search engines use data structures like inverted index and ranking.");
-    engine.addDocument("Machine learning improves search ranking and user experience.");
-    engine.addDocument("C++ allows fast algorithms for implementing search engines.");
+    void addPage(const WebPage &page) {
+        Node* node = new Node(page);
+        if (!head) head = tail = node;
+        else {
+            tail->next = node;
+            tail = node;
+        }
+        size++;
+    }
 
-    while(true){
-        cout << "\nEnter query (or type EXIT): ";
-        string query;
-        getline(cin, query);
+    Node* getHead() const { return head; }
+    int getSize() const { return size; }
 
-        if(query == "EXIT") break;
+    WebPage* findById(int id) const {
+        Node* curr = head;
+        while (curr) {
+            if (curr->page.getId() == id) return &curr->page;
+            curr = curr->next;
+        }
+        return nullptr;
+    }
 
-        auto results = engine.search(query);
+    vector<WebPage*> getAllPages() const {
+        vector<WebPage*> pages;
+        Node* curr = head;
+        while (curr) {
+            pages.push_back(&curr->page);
+            curr = curr->next;
+        }
+        return pages;
+    }
+};
 
-        if(results.empty()){
-            cout << "No results found.\n";
-        } else {
-            cout << "\nTop Results:\n";
-            for(auto &p : results){
-                cout << "Document #" << p.first 
-                     << " | Score: " << p.second << "\n";
-                cout << " → " << engine.documents[p.first] << "\n\n";
+// Search Engine class
+class SearchEngine {
+private:
+    LinkedList database;
+    unordered_map<string, set<int>> invertedIndex;
+
+    string toLower(const string& str) {
+        string res = str;
+        transform(res.begin(), res.end(), res.begin(), ::tolower);
+        return res;
+    }
+
+public:
+    SearchEngine(const LinkedList &db) : database(db) {}
+
+    void buildIndex() {
+        Node* curr = database.getHead();
+        while (curr) {
+            stringstream ss(curr->page.getTitle() + " " + curr->page.getContent());
+            string word;
+            while (ss >> word) {
+                invertedIndex[toLower(word)].insert(curr->page.getId());
             }
+            curr = curr->next;
         }
     }
 
+    vector<int> searchKeyword(const string &keyword) {
+        string kw = toLower(keyword);
+        if (invertedIndex.find(kw) != invertedIndex.end()) {
+            return vector<int>(invertedIndex[kw].begin(), invertedIndex[kw].end());
+        }
+        return {};
+    }
+
+    void displayResults(const vector<int> &results, int pageSize = 2) {
+        if (results.empty()) {
+            cout << "No results found.\n";
+            return;
+        }
+
+        int totalPages = (results.size() + pageSize - 1) / pageSize;
+        int page = 0;
+
+        while (true) {
+            cout << "\nPage " << page + 1 << "/" << totalPages << ":\n";
+            int start = page * pageSize;
+            int end = min(start + pageSize, (int)results.size());
+
+            for (int i = start; i < end; i++) {
+                WebPage* p = database.findById(results[i]);
+                if (p) p->displaySummary();
+            }
+
+            cout << "Options: [N]ext page | [P]revious page | [O]pen <ID> | [Q]uit\n";
+            string choice;
+            cin >> choice;
+
+            if (choice == "N" || choice == "n") {
+                if (page + 1 < totalPages) page++;
+                else cout << "Already last page.\n";
+            } else if (choice == "P" || choice == "p") {
+                if (page > 0) page--;
+                else cout << "Already first page.\n";
+            } else if (choice == "O" || choice == "o") {
+                int id;
+                cin >> id;
+                WebPage* p = database.findById(id);
+                if (p) p->displayFull();
+            } else if (choice == "Q" || choice == "q") break;
+            else cout << "Invalid option! Try again.\n";
+        }
+    }
+};
+
+int main() {
+    LinkedList pages;
+    pages.addPage(WebPage(1, "C++ Basics", "Learn C++ programming from scratch. This tutorial covers variables, loops, functions, classes, and more to help you get started quickly.", "https://example.com/cpp-basics"));
+    pages.addPage(WebPage(2, "Qt Tutorial", "GUI development with Qt framework. Create windows, buttons, input forms, layouts, and handle events in C++ using Qt.", "https://example.com/qt-tutorial"));
+    pages.addPage(WebPage(3, "Advanced Search", "Building search engines in C++ using data structures like vectors, maps, and sets. Learn inverted index, keyword search, and ranking.", "https://example.com/advanced-search"));
+    pages.addPage(WebPage(4, "Data Structures", "Learn arrays, linked list, stack, queue, trees, and graphs in C++. Understand their implementation and use in algorithms.", "https://example.com/ds"));
+    pages.addPage(WebPage(5, "Algorithms", "Sorting, searching, graph traversal, dynamic programming, and more. Master algorithmic problem-solving with C++ examples.", "https://example.com/algo"));
+
+    SearchEngine engine(pages);
+    engine.buildIndex();
+
+    while (true) {
+        string keyword;
+        cout << "\nEnter search keyword (or 'exit' to quit): ";
+        cin >> keyword;
+        if (keyword == "exit") break;
+
+        auto start = chrono::high_resolution_clock::now();
+        vector<int> results = engine.searchKeyword(keyword);
+        auto end = chrono::high_resolution_clock::now();
+
+        auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
+        cout << "Search took " << duration.count() << " ms.\n";
+
+        engine.displayResults(results);
+    }
+
+    cout << "Goodbye!\n";
     return 0;
 }
